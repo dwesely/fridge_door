@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <TM1637Display.h>
+#include <RunningMedian.h>
 
 /*
    display_workout(mode)
@@ -22,17 +23,17 @@ const int doorAjarPin = 0;    // digital read if door is opened, PWM output for 
 #define THERMISTORNOMINAL 10000
 // temp. for nominal resistance (almost always 25 C)
 #define TEMPERATURENOMINAL 25
-// how many samples to take and average, more takes longer
+// how many samples to take and find median
 // but is more 'smooth'
-#define NUMSAMPLES 7
+#define NUMSAMPLES 11
 // The beta coefficient of the thermistor (usually 3000-4000)
 // Model#: NTCLE350E4103JHB0
 #define BCOEFFICIENT 3984
 // the value of the 'other' resistor
 #define SERIESRESISTOR 10000
 
-int freezerSamples[NUMSAMPLES];
-int fridgeSamples[NUMSAMPLES];
+RunningMedian freezerSamples = RunningMedian(NUMSAMPLES);
+RunningMedian fridgeSamples = RunningMedian(NUMSAMPLES);
 
 TM1637Display display(displayCLKPin, displayDIOPin);
 
@@ -75,34 +76,6 @@ void setup() {
 
   display.clear();
   display.setBrightness(4); //0 (lowes brightness) to 7 (highest brightness)
-}
-
-float readTemps(float* avgFrgFrz) {
-  // Read thermistors
-  float freezerAverage;
-  float fridgeAverage;
-  uint8_t i;
-
-  // take N samples in a row, with a slight delay
-  for (i = 0; i < NUMSAMPLES; i++) {
-    freezerSamples[i] = analogRead(freezerTempPin);
-    delay(5);
-    fridgeSamples[i] = analogRead(fridgeTempPin);
-    delay(5);
-  }
-
-  // average all the samples out
-  freezerAverage = 0;
-  fridgeAverage = 0;
-  for (i = 0; i < NUMSAMPLES; i++) {
-    freezerAverage += freezerSamples[i];
-    fridgeAverage += fridgeSamples[i];
-  }
-  freezerAverage /= NUMSAMPLES;
-  fridgeAverage /= NUMSAMPLES;
-
-  avgFrgFrz[0] = fridgeAverage;
-  avgFrgFrz[1] = freezerAverage;
 }
 
 int convertTemp(float measured) {
@@ -161,16 +134,19 @@ void loop() {
     // pin is pulled to ground, door is closed
     doorAjarFlag = false;
   }
-  float avgTempsFrgFrz[2];
-  readTemps(avgTempsFrgFrz);
-  fridgeTemp = convertTemp(avgTempsFrgFrz[0]);
-  freezerTemp = convertTemp(avgTempsFrgFrz[1]);
+
+    freezerSamples.add(analogRead(freezerTempPin));
+    delay(5);
+    fridgeSamples.add(analogRead(fridgeTempPin));
+    delay(5);
+    fridgeTemp = convertTemp(fridgeSamples.getMedian());
+    freezerTemp = convertTemp(freezerSamples.getMedian());
 
 
   // Update display
   displayValue = fridgeTemp * 100 + freezerTemp;
   display.setBrightness(4); //0 (lowes brightness) to 7 (highest brightness)
   display.showNumberDec(displayValue, true);
-  delay(50);
+  delay(100);
 
 }
